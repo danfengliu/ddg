@@ -116,6 +116,7 @@ public class KibishiiWorker {
 
 			@Override
 			public void onCompleted() {
+
 				System.out.println("leaseID:"+leaseID);
 				System.out.println("onCompleted called - keepAlive");
 			}	
@@ -212,7 +213,7 @@ public class KibishiiWorker {
 					long fileLength = getLong(responseObject, "fileLength");
 					int blockSize = getInteger(responseObject, "blockSize");
 					int passNum = getInteger(responseObject, "passNum");
-					System.out.println(cmd + " started, root = " + root +
+					System.out.println("("+cmd + ") started, root = " + root +
 							", levels = " + levels +
 							", dirsPerLevel = " + dirsPerLevel +
 							", filesPerLevel = " + filesPerLevel +
@@ -395,3 +396,5 @@ public class KibishiiWorker {
 		return key;
 	}
 }
+
+
