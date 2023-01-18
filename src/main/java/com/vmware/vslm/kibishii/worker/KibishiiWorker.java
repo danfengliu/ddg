@@ -136,7 +136,7 @@ public class KibishiiWorker {
 			//.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 			CompletableFuture<TxnResponse> resFuture = checkTxn
 					.If(new Cmp(key, Cmp.Op.EQUAL, CmpTarget.createRevision(0)))
-					.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().build()))
+					.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 					.commit();
 			TxnResponse res = resFuture.get();
 			System.out.println("txn completed");
@@ -314,7 +314,7 @@ public class KibishiiWorker {
 		//.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 		CompletableFuture<TxnResponse> resFuture = checkTxn
 				.If(new Cmp(key, Cmp.Op.EQUAL, CmpTarget.createRevision(0)))
-				.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().build()))
+				.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 				.commit();
 		resFuture.get();	// We actually don't care if it succeeds, if it fails it means someone else
 							// succeeded
