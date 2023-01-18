@@ -27,11 +27,9 @@ import io.etcd.jetcd.Watch.Listener;
 import io.etcd.jetcd.kv.GetResponse;
 import io.etcd.jetcd.kv.TxnResponse;
 import io.etcd.jetcd.lease.LeaseKeepAliveResponse;
-import io.etcd.jetcd.lease.LeaseTimeToLiveResponse;
 import io.etcd.jetcd.op.Cmp;
 import io.etcd.jetcd.op.CmpTarget;
 import io.etcd.jetcd.options.GetOption;
-import io.etcd.jetcd.options.LeaseOption;
 import io.etcd.jetcd.options.PutOption;
 import io.etcd.jetcd.watch.WatchEvent;
 import io.etcd.jetcd.watch.WatchEvent.EventType;
@@ -53,7 +51,6 @@ import org.json.simple.parser.ParseException;
 
 
 
-
 public class KibishiiWorker {
 
 	private static final String KIBISHII_OPS_PREFIX = "/kibishii/ops/";
@@ -70,8 +67,10 @@ public class KibishiiWorker {
 					try {
 						new KibishiiWorker(args[0], endpoints, root);
 					} catch (InterruptedException e) {
+						System.out.println("Create KibishiiWorker InterruptedException error: ("+e+")");
 						e.printStackTrace();
 					} catch (ExecutionException e) {
+						System.out.println("Create KibishiiWorker ExecutionException error: ("+e+")");
 						e.printStackTrace();
 					}
 				}
@@ -82,9 +81,9 @@ public class KibishiiWorker {
 
 	private final String nodeID;
 	private final Client client;
-	private long leaseID;
-	//private int leaseSecs = 10 * 1000;
-	private long leaseMS = 10 * 1000;
+	private final long leaseID;
+	private int leaseSecs = 10 * 1000;
+	private long leaseMS = leaseSecs * 1000;
 	private String nodeKey, controlKey, resultsKey, statusKey;
 	private ExecutionThread executionThread;
 	private File root;
@@ -95,36 +94,37 @@ public class KibishiiWorker {
 		if (nodeID.contains(",") || nodeID.contains("/"))
 			throw new IllegalArgumentException("nodeID may not contain commas or slashes");
 		this.root = root;
+
 		client = Client.builder().endpoints(Util.toURIs(Arrays.asList(endpoints))).build();
+		try
+		{
+			
+		} catch (Exception e)
+		{
+			System.out.println("Create ETCD client error:"+e);
+		}
+		leaseID = client.getLeaseClient().grant(leaseSecs).get().getID();
 
-		leaseID = client.getLeaseClient().grant(60*60).get().getID();
-        System.out.println("leaseID:"+leaseID);
+		
 
-		LeaseTimeToLiveResponse lTRes = client.getLeaseClient().timeToLive(leaseID, LeaseOption.newBuilder().withAttachedKeys().build()).get();
-		System.out.println("LeaseTimeToLiveResponse 1:" + lTRes);
 		client.getLeaseClient().keepAlive(leaseID, new StreamObserver<LeaseKeepAliveResponse>() {
+
 			@Override
 			public void onNext(LeaseKeepAliveResponse value) {
-				System.out.println("On next called, value = " + value);
+				//System.out.println("On next called, value = " + value);
 			}
 
 			@Override
 			public void onError(Throwable t) {
-				System.out.println("onError called");
+				System.out.println("keepAlive: onError called");
 				t.printStackTrace();
 			}
 
 			@Override
 			public void onCompleted() {
-
-				System.out.println("leaseID:"+leaseID);
-				System.out.println("onCompleted called - keepAlive");
-			}	
+				System.out.println("keepAlive: onCompleted called");
+			}
 		});
-
-		lTRes = client.getLeaseClient().timeToLive(leaseID, LeaseOption.newBuilder().withAttachedKeys().build()).get();
-		System.out.println("LeaseTimeToLiveResponse 2:" + lTRes);
-		
 		int retries = 3;
 		boolean succeeded = false;
 		nodeKey = KIBISHII_NODES_PREFIX + nodeID + root.getName();;
@@ -133,15 +133,12 @@ public class KibishiiWorker {
 			Txn checkTxn = client.getKVClient().txn();
 			ByteSequence key = toBS(nodeKey);
 			ByteSequence value = toBS(nodeID);
-			//.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 			CompletableFuture<TxnResponse> resFuture = checkTxn
 					.If(new Cmp(key, Cmp.Op.EQUAL, CmpTarget.createRevision(0)))
 					.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 					.commit();
 			TxnResponse res = resFuture.get();
-			System.out.println("txn completed");
-			lTRes = client.getLeaseClient().timeToLive(leaseID, LeaseOption.newBuilder().withAttachedKeys().build()).get();
-			System.out.println("LeaseTimeToLiveResponse 3:" + lTRes);
+			System.out.println("txn completed:"+retries);
 			if (res.getPutResponses().size() > 0) {
 				System.out.println("Succeded, we are owner for " + nodeID);
 				succeeded = true;
@@ -156,27 +153,9 @@ public class KibishiiWorker {
 
 			@Override
 			public void onNext(WatchResponse response) {
-				System.out.println("On next called, response = " + response);
+				System.out.println("watch: On next called, response = " + response);
 				for (WatchEvent curEvent:response.getEvents()) {
 					if (curEvent.getEventType() == EventType.PUT) {
-						client.getLeaseClient().keepAlive(leaseID, new StreamObserver<LeaseKeepAliveResponse>() {
-							@Override
-							public void onNext(LeaseKeepAliveResponse value) {
-								System.out.println("On next called, value = " + value);
-							}
-				
-							@Override
-							public void onError(Throwable t) {
-								System.out.println("onError called");
-								t.printStackTrace();
-							}
-				
-							@Override
-							public void onCompleted() {
-								System.out.println("leaseID:"+leaseID);
-								System.out.println("onCompleted called - keepAlive - controlKey");
-							}	
-						});
 						controlNodeUpdated(nodeID, root);
 					}
 				}
@@ -184,13 +163,13 @@ public class KibishiiWorker {
 
 			@Override
 			public void onError(Throwable t) {
-				System.out.println("onError called");
+				System.out.println("watch: onError called");
 				t.printStackTrace();
 			}
 
 			@Override
 			public void onCompleted() {
-				System.out.println("onCompleted called - Listener");
+				System.out.println("watch: onCompleted called");
 			}
 		});
 	}
@@ -311,7 +290,6 @@ public class KibishiiWorker {
 		ByteSequence value = toBS(completionJSON.toJSONString());
 
 		// Only insert if we're the first one to insert something
-		//.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
 		CompletableFuture<TxnResponse> resFuture = checkTxn
 				.If(new Cmp(key, Cmp.Op.EQUAL, CmpTarget.createRevision(0)))
 				.Then(io.etcd.jetcd.op.Op.put(key, value, PutOption.newBuilder().withLeaseId(leaseID).build()))
@@ -341,24 +319,30 @@ public class KibishiiWorker {
 			String failedNodesStr = (String)completionValue.get("nodesFailed");
 			nodesCompleted ++;
 			completionValue.put("nodesCompleted", Integer.toString(nodesCompleted));
+			System.out.println("Put: nodesCompleted:"+Integer.toString(nodesCompleted));
+
 
 			if (success) {
 				if (successNodesStr.length() > 0)
 					successNodesStr += ",";
 				successNodesStr += nodeID;
 				completionValue.put("nodesSuccessful", successNodesStr);
+				System.out.println("Put: nodesSuccessful:"+successNodesStr);
 
 			} else {
 				if (failedNodesStr.length() > 0)
 					failedNodesStr += ",";
 				failedNodesStr += nodeID;
 				completionValue.put("nodesFailed", failedNodesStr);
+				System.out.println("Put: nodesFailed:" +failedNodesStr);
 			}
 			if (nodesCompleted == nodesStarting) {
 				if (failedNodesStr.length() > 0) {
 					completionValue.put("status", "failed");
+					System.out.println("Put status: failed");
 				} else {
 					completionValue.put("status", "success");
+					System.out.println("Put status: success");
 				}
 			}
 			Txn updateTxn = client.getKVClient().txn();
@@ -396,5 +380,3 @@ public class KibishiiWorker {
 		return key;
 	}
 }
-
-
